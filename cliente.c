@@ -17,8 +17,8 @@ void main(int argc, char *argv[])
   int fd;
   int n;
   char *host;
-  char buf_ser[256];
-  char buf_cli[256];
+  char buf_ser[512];
+  char buf_cli[512];
 
   // Genera el File Descriptor que usará el cliente durante la conexión
   fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -37,15 +37,22 @@ void main(int argc, char *argv[])
   do
   {
     n = recv(fd, buf_ser, sizeof(buf_ser), 0);
+    
+    // Verifica que no se haya indicado la salida desde el servidor
+    if (!strcmp(buf_ser, "exit")){
+      break;
+    }
+
+    // De no ser el caso, muestra la respuesta del servidor
     write(1, buf_ser, n);
 
+    // Lee la respuesta del usuario
     gets(buf_cli);
-  
+
     // Envía mensaje al servidor tras la conexión
     send(fd, buf_cli, strlen(buf_cli), 0);
   } while (1);
      
-  
   // Finaliza la conexión, tras el envío del mensaje, cerrando el File Descriptor
   close(fd);
   exit(0);

@@ -12,71 +12,186 @@
 
 #define PORT 9999
 
-int identificarSalida(char *mensaje);                           // Funcion que determina cuando se debe salir del programa 
-int determinarCaso(char *mensaje);                              // Funcion que analiza la entrada del usuario
-char **desglosarComandos(char *mensaje);                        // Funcion que separa los comandos individuales
-char **desglosarPipe(char *mensaje);                            // Funcion que separa los comandos divididos por un pipe
+int identificarSalida(char *mensaje);                               // Funcion que determina cuando se debe salir del programa 
+int determinarCaso(char *mensaje);                                  // Funcion que analiza la entrada del usuario
+char **desglosarComandos(char *mensaje);                            // Funcion que separa los comandos individuales
+char **desglosarPipe(char *mensaje);                                // Funcion que separa los comandos divididos por un pipe
 
 int main()
 {
-  struct sockaddr_in servidor;
-  struct sockaddr_in cliente;
-  struct hostent* info_cliente;
-  int fd_s, fd_c, n, fd;
-  int longClient;
-  char buf[256];
+    // Variables requeridas para levantar el servidor  
+    struct sockaddr_in servidor;
+    struct sockaddr_in cliente;
+    struct hostent* info_cliente;
+    int fd_s, fd_c, n;
+    int longClient;
+    char buf[256];
 
-  // Generamos el File Descriptor para el servidor
-  fd_s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    // Variables usadas para la ejecución de comandos 
+    char *arg[10];                                                  // Arreglo donde se colocan los comandos individuales
+    char *comandoPipe1[10];                                         // Arreglo para los comandos antes del pipe
+    char *comandoPipe2[10];                                         // Arreglo para los comandos después del pipe
+    int caso;                                                       // Variable que determina como se ejecutaran los comandos
+    int sigue = 1;                                                  // Variable para controlar el loop while
+
+    // Generamos el File Descriptor para el servidor
+    fd_s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	      
-  // Se inicializan los valores del servidor (struct sockaddr_in)
-  memset((char *) &servidor, 0, sizeof(servidor));
-  servidor.sin_family = AF_INET;
-  servidor.sin_addr.s_addr = INADDR_ANY;
-  servidor.sin_port = htons((u_short) PORT);
-  memset(&(servidor.sin_zero), '\0', 8);
+    // Se inicializan los valores del servidor (struct sockaddr_in)
+    memset((char *) &servidor, 0, sizeof(servidor));
+    servidor.sin_family = AF_INET;
+    servidor.sin_addr.s_addr = INADDR_ANY;
+    servidor.sin_port = htons((u_short) PORT);
+    memset(&(servidor.sin_zero), '\0', 8);
 
-  // Asocia el descriptor de archivo del servidor con su estructura correspondiente
-  bind(fd_s, (struct sockaddr *) &servidor, sizeof(servidor));
+    // Asocia el descriptor de archivo del servidor con su estructura correspondiente
+    bind(fd_s, (struct sockaddr *) &servidor, sizeof(servidor));
 
-  // Espera solicitud de conexión
-  printf("Esperando conexión...\n");
-  listen(fd_s, 1);
+    // Espera solicitud de conexión
+    printf("Esperando conexión...\n");
+    listen(fd_s, 1);
 
-  longClient = sizeof(cliente);
+    longClient = sizeof(cliente);
 
-  // Establece conexión y genera File Descriptor para el cliente
-  fd_c = accept(fd_s, (struct sockaddr *) &cliente, &longClient);
+    // Establece conexión y genera File Descriptor para el cliente
+    fd_c = accept(fd_s, (struct sockaddr *) &cliente, &longClient);
 
-  // Obtiene la información del cliente y muestra desde donde se realiza la conexión
-  info_cliente = gethostbyaddr((char *) &cliente.sin_addr, sizeof(struct in_addr), AF_INET);
-  printf("Conectado desde: %s\n\n", info_cliente -> h_name);
+    // Obtiene la información del cliente y muestra desde donde se realiza la conexión
+    info_cliente = gethostbyaddr((char *) &cliente.sin_addr, sizeof(struct in_addr), AF_INET);
+    printf("Conectado desde: %s\n\n", info_cliente -> h_name);
 
-  // Coloca la conexion como salida estandar
-  dup2(STDOUT_FILENO, fd);
-  dup2(fd_c, STDOUT_FILENO);
-  printf("Introduce los comandos a ejecutar:\n");
+// ------------------------------------ Ejecucion de comandos
 
-  // Utiliza la variable n para detectar si ha recibido peticiones
-  n = recv(fd_c, buf, sizeof(buf), 0);
-  
-  // El ciclo se mantendrá mostrando mensajes mientras estos lleguen
-  while (n > 0) {
-    dup2(fd, STDOUT_FILENO);
-    write(1, buf, n);
-    printf("\n\n");
+    // Coloca la conexion como salida estandar
     dup2(fd_c, STDOUT_FILENO);
-    printf("Introduce los comandos a ejecutar:\n");
-    n = recv(fd_c, buf, sizeof(buf), 0);
-  } 
 
-  // Finalizamos la conexión cerrando el File Descriptor del cliente
-  close(fd_c);
-  close(fd);  
-  // Dejamos de responder solicitudes cerrando el File Descriptor del servidor
-  close(fd_s);
-  shutdown( fd_s, SHUT_RDWR );
-  exit(0);
+    do {
+
+        printf("Introduce los comandos a ejecutar:\n");
+        
+        // Utiliza la variable n para detectar si ha recibido peticiones
+        n = recv(fd_c, buf, sizeof(buf), 0);
+        
+        // Se omiten las respuestas que no tinen argumentos
+        if (n == 0){
+            continue;}
+
+        // Colocamos NULL al final del buffer
+        buf[n] = (char*)0;                                  
+
+        // Identifica si hay 1 o mas comandos
+        caso = determinarCaso(buf);
+
+        // Se valida que el primer comando sea distinto de 'exit'
+        sigue = identificarSalida(buf);
+        
+        // Cuandos se identifica un 'exit' se termina la ejecucion y notifica al cliente
+        if (!sigue){
+            write(1, "exit", 5);
+            break;}                                             
+
+        // Se crea un hijo para ejecutar los comandos sin pipe
+        if (caso == 0)                                          
+        {
+            // Obtiene los apuntadores a los strings separados de cada comando
+            char **apuntadores = desglosarComandos(buf);
+            
+            // Copia los apuntadores al arreglo de apuntadores de la función main
+            int i;                                              
+            for (i = 0; apuntadores[i] != NULL; i++)            
+            {
+                arg[i] = apuntadores[i];                        
+            }
+
+            // Añade el NULL final al arreglo
+            arg[i] = apuntadores[i];
+            
+            int pid = fork();                                   // Creamos el proceso hijo que se encargará de la ejecución
+            if (!pid)                                           // Validamos que sea el proceso hijo
+            {   
+                execvp(arg[0], arg);                            // Ejecuta los comandos
+                exit(1);                                        // De no presentar comandos válidos, termina 
+            } else                                              // Instrucciones para el proceso padre
+            {
+                wait(NULL);                                     // Espera que el proceso hijo finalice
+            }
+        }
+
+        // Cuando se introdujo con comando con pipe
+        else if (caso == 1)                                   
+        {
+            char **apuntadores = desglosarPipe(buf);        // Obtiene los apuntadores a los strings separados
+
+            int indice = 0;                                     // Variable de apoyo para recorrer 'apuntadores' en la asignación
+
+            for (int i = 0; apuntadores[i] != "|"; i++)         // Asignamos los valores anteriores al pipe al lado izquierdo
+            {
+                comandoPipe1[i] = apuntadores[indice];
+                indice++;                        
+            }
+
+            comandoPipe1[indice] = (char*)0;                    // Agregamos el final al lado izquierdo
+            indice++;
+
+            for (int i = 0; apuntadores[i] != NULL; i++)        // Asignamos los valores posteriores al pipe al lado derecho
+            {
+                comandoPipe2[i] = apuntadores[indice];
+                indice++;                        
+            }
+
+            comandoPipe2[indice] = (char*)0;                    // Agregamos el final al lado derecho
+
+            int pid = fork();                                   // Creacion del proceso hijo
+
+            if (pid)                                            // El proceso padre espera la finalizacion de los hijos
+            {
+                wait(NULL);
+            } else                                              // El proceso hijo ejecuta los pipes
+            {
+                int pipefd[2];
+                pipe(pipefd);
+
+                pid = fork();                                   // Segundo proceso hijo para ejecucion de comandos pipe
+                if (pid)
+                {
+                    close(0);                                   // Cerramos la entrada de consola
+                    close(pipefd[1]);                           // Cerramos el extremo de escritura del pipe
+                    dup(pipefd[0]);                             // Extremo de lectura como entrada estandar
+                    wait(NULL);                                 // Espera a que el hijo termine de escribir
+                    execvp(comandoPipe2[0], comandoPipe2);      // Ejecuta las instrucciones posteriores al pipe
+                    exit(1);                                    // Devuelve la ejecucion del programa al proceso padre 
+                } else
+                {
+                    close(1);                                   // Cerramos la salida a consola
+                    close(pipefd[0]);                           // Cerramos el extemo de lectura del pipe
+                    dup(pipefd[1]);                             // Extremo de escritura como salida estandar
+                    execvp(comandoPipe1[0], comandoPipe1);      // Ejecuta las instrucciones anteriores al pipe
+                    exit(1);                                    // Termina la ejecucion para instrucciones no validas
+                }
+            }    
+        }
+
+        for (int i = 0; i < 10; i++)                            // Limpiamos el contenido de  los arreglos despues de cada ejecución
+        {
+            arg[i] = 0;
+            comandoPipe1[i] = 0;
+            comandoPipe2[i] = 0;
+        }
+
+        if (sigue){
+            printf("\n");}                                           // Salto de línea para diferenciar el final de cada ejecución
+
+    } while (sigue != 0);                                       // Condicion para mantener activo el ciclo
+
+// ------------------------------------------------------------------------
+
+    // Finalizamos la conexión cerrando el File Descriptor del cliente
+    close(fd_c);
+
+    // Dejamos de responder solicitudes cerrando el File Descriptor del servidor
+    close(fd_s);
+    shutdown( fd_s, SHUT_RDWR );
+    exit(0);
 }
 
 int identificarSalida(char *mensaje)
@@ -85,7 +200,7 @@ int identificarSalida(char *mensaje)
     int receptor = 0;                                           // Contador para el numero efectivo de caracteres leídos
     char exit[4];                                               // Arreglo que recibe los caracteres efectivos leídos
 
-    while(contador < 50)                                        // El limite del contador es el tamaño del arreglo
+    while(contador < 256)                                        // El limite del contador es el tamaño del arreglo
     {
         if (isblank(mensaje[contador]))                         // Si no hay un caracter, el contador avanza
         {
