@@ -10,6 +10,8 @@
 #include <netdb.h>
 #include <unistd.h>
 
+
+#define CLIENTES 10
 #define PORT 9999
 
 int identificarSalida(char *mensaje);                               // Funcion que determina cuando se debe salir del programa 
@@ -33,7 +35,7 @@ int main()
     char *comandoPipe2[10];                                         // Arreglo para los comandos después del pipe
     int caso;                                                       // Variable que determina como se ejecutaran los comandos
     int sigue = 1;                                                  // Variable para controlar el loop while
-
+    
     // Generamos el File Descriptor para el servidor
     fd_s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	      
@@ -49,7 +51,7 @@ int main()
 
     // Espera solicitud de conexión
     printf("Esperando conexión...\n");
-    listen(fd_s, 1);
+    listen(fd_s, CLIENTES);
 
     longClient = sizeof(cliente);
 
@@ -63,21 +65,24 @@ int main()
 // ------------------------------------ Ejecucion de comandos
 
     // Coloca la conexion como salida estandar
-    dup2(fd_c, STDOUT_FILENO);
 
-    do {
-
-        printf("Introduce los comandos a ejecutar:\n");
+    while (sigue != 0)
+    {
+        //printf("Introduce los comandos a ejecutar:\n");
+        send(fd_c, "\nServidor_AC$ ", 14, 0);
         
+        do{
         // Utiliza la variable n para detectar si ha recibido peticiones
+        memset(&(buf), '\0', 256);
         n = recv(fd_c, buf, sizeof(buf), 0);
         
-        // Se omiten las respuestas que no tinen argumentos
-        if (n == 0){
-            continue;}
-
         // Colocamos NULL al final del buffer
-        buf[n] = (char*)0;                                  
+        buf[n] = (char*)0;
+        //---printf("Se recibió \"%i\"\n", *buf); // Valor ASCII
+        //---printf("Se recibió \"%s\"\n", buf); // Cadena en el buffer
+        }
+        // Se omiten las respuestas que no tinen argumentos
+        while (*buf < 1);
 
         // Identifica si hay 1 o mas comandos
         caso = determinarCaso(buf);
@@ -86,8 +91,8 @@ int main()
         sigue = identificarSalida(buf);
         
         // Cuandos se identifica un 'exit' se termina la ejecucion y notifica al cliente
-        if (!sigue){
-            write(1, "exit", 5);
+        if (!sigue){  
+            send(fd_c, "exit", 5, 0);
             break;}                                             
 
         // Se crea un hijo para ejecutar los comandos sin pipe
@@ -105,14 +110,19 @@ int main()
 
             // Añade el NULL final al arreglo
             arg[i] = apuntadores[i];
-            
+
+            send(fd_c, "exec", 5, 0);                       // Notifica que el mensaje es exec
+
             int pid = fork();                                   // Creamos el proceso hijo que se encargará de la ejecución
-            if (!pid)                                           // Validamos que sea el proceso hijo
+            if (pid == 0)                                           // Validamos que sea el proceso hijo
             {   
+                //---printf("\tFork hace exec\n");
+                dup2(fd_c, STDOUT_FILENO);                      // Colocamos el FD del cliente como la salida estándar
                 execvp(arg[0], arg);                            // Ejecuta los comandos
                 exit(1);                                        // De no presentar comandos válidos, termina 
             } else                                              // Instrucciones para el proceso padre
             {
+                //---printf("\tPadre pasa a WAIT\n");
                 wait(NULL);                                     // Espera que el proceso hijo finalice
             }
         }
@@ -178,15 +188,11 @@ int main()
             comandoPipe2[i] = 0;
         }
 
-        if (sigue){
-            printf("\n");}                                           // Salto de línea para diferenciar el final de cada ejecución
-
-    } while (sigue != 0);                                       // Condicion para mantener activo el ciclo
-
-// ------------------------------------------------------------------------
+    }
 
     // Finalizamos la conexión cerrando el File Descriptor del cliente
     close(fd_c);
+// ----------------------------------------------------------------------------------------
 
     // Dejamos de responder solicitudes cerrando el File Descriptor del servidor
     close(fd_s);
