@@ -25,7 +25,7 @@ int main()
     struct sockaddr_in servidor;
     struct sockaddr_in cliente;
     struct hostent* info_cliente;
-    int fd_s, fd_c, n;
+    int fd_s, fd_c, n, num_cli = 1;
     int longClient;
     char buf[256];
 
@@ -55,17 +55,18 @@ int main()
 
     longClient = sizeof(cliente);
 
+while(1){
+
     // Establece conexión y genera File Descriptor para el cliente
     fd_c = accept(fd_s, (struct sockaddr *) &cliente, &longClient);
 
     // Obtiene la información del cliente y muestra desde donde se realiza la conexión
     info_cliente = gethostbyaddr((char *) &cliente.sin_addr, sizeof(struct in_addr), AF_INET);
-    printf("Conectado desde: %s\n\n", info_cliente -> h_name);
+    printf("Cliente %i conectado desde: %s\n\n", num_cli, info_cliente -> h_name);
+
+    if (fork() == 0 ){
 
 // ------------------------------------ Ejecucion de comandos
-
-    // Coloca la conexion como salida estandar
-
     while (sigue != 0)
     {
         //printf("Introduce los comandos a ejecutar:\n");
@@ -192,7 +193,18 @@ int main()
 
     // Finalizamos la conexión cerrando el File Descriptor del cliente
     close(fd_c);
+    printf("\nConexion con cliente %i finalizada\n", num_cli);
+    exit(0);
+    }
+    // El proceso padre cierra el descriptor del cliente y sigue aceptando peticiones
+    else 
+    {
+        close(fd_c);
+        ++num_cli;
+    }
+
 // ----------------------------------------------------------------------------------------
+} // cierra while(1)
 
     // Dejamos de responder solicitudes cerrando el File Descriptor del servidor
     close(fd_s);
